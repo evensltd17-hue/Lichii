@@ -424,7 +424,18 @@ vk::Buffer MemoryAllocator::CreateBuffer(const VkBufferCreateInfo &ci, MemoryUsa
     VkMemoryPropertyFlags property_flags{};
 
     if (!CreateBufferInSeparatePool(ci, usage, alloc_ci, handle, allocation, alloc_info)) {
-        vk::Check(vmaCreateBuffer(allocator, &ci, &alloc_ci, &handle, &allocation, &alloc_info));
+        VkResult result = vmaCreateBuffer(allocator, &ci, &alloc_ci, &handle, &allocation, &alloc_info);
+        if (result == VK_ERROR_OUT_OF_DEVICE_MEMORY) {
+            auto relaxed = alloc_ci;
+            relaxed.flags &= ~VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+            result = vmaCreateBuffer(allocator, &ci, &relaxed, &handle, &allocation, &alloc_info);
+            if (result == VK_ERROR_OUT_OF_DEVICE_MEMORY &&
+                (relaxed.preferredFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
+                relaxed.preferredFlags &= ~VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+                result = vmaCreateBuffer(allocator, &ci, &relaxed, &handle, &allocation, &alloc_info);
+            }
+        }
+        vk::Check(result);
     }
     vmaGetAllocationMemoryProperties(allocator, allocation, &property_flags);
 
@@ -481,8 +492,26 @@ vk::Buffer MemoryAllocator::CreateBuffer(const VkBufferCreateInfo &ci, MemoryUsa
     VmaAllocation allocation{};
     VkMemoryPropertyFlags property_flags{};
 
-    vk::Check(vmaCreateBufferWithAlignment(allocator, &ci, &alloc_ci, min_alignment, &handle,
-                                           &allocation, &alloc_info));
+    VkResult result = vmaCreateBufferWithAlignment(
+        allocator, &ci, &alloc_ci, min_alignment, &handle, &allocation, &alloc_info);
+
+    if (result == VK_ERROR_OUT_OF_DEVICE_MEMORY) {
+        auto relaxed = alloc_ci;
+        relaxed.flags &= ~VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+
+        result = vmaCreateBufferWithAlignment(
+            allocator, &ci, &relaxed, min_alignment, &handle, &allocation, &alloc_info);
+
+        if (result == VK_ERROR_OUT_OF_DEVICE_MEMORY &&
+            (relaxed.preferredFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
+            relaxed.preferredFlags &= ~VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+            result = vmaCreateBufferWithAlignment(
+                allocator, &ci, &relaxed, min_alignment, &handle, &allocation, &alloc_info);
+        }
+    }
+
+    vk::Check(result);
     vmaGetAllocationMemoryProperties(allocator, allocation, &property_flags);
 
     u8 *data = reinterpret_cast<u8 *>(alloc_info.pMappedData);
