@@ -929,6 +929,10 @@ HostMemory::HostMemory(size_t backing_size_, size_t virtual_size_)
         LOG_WARNING(HW_Memory, "Platform can support fastmem, but can't create it");
         fallback_buffer = true;
         backing_base = static_cast<u8*>(impl->Allocate(backing_size));
+        if (backing_base == nullptr) {
+            LOG_CRITICAL(HW_Memory, "Host memory allocation failed; cannot initialize guest memory");
+            throw std::bad_alloc{};
+        }
         virtual_base = nullptr;
         impl.reset();
     }
@@ -938,7 +942,7 @@ HostMemory::HostMemory(size_t backing_size_, size_t virtual_size_)
 HostMemory::~HostMemory() {
 #ifdef _WIN32
     if (fallback_buffer) {
-        VirtualFree(backing_base, backing_size, MEM_RELEASE);
+        VirtualFree(backing_base, 0, MEM_RELEASE);
     }
 #else
     if (fallback_buffer) {
